@@ -9,6 +9,7 @@ import {
 } from 'viem'
 
 import type * as Credential from '../../../Credential.js'
+import type { MaybePromise } from '../../../internal/types.js'
 import {
   BadRequestError,
   ChannelClosedError,
@@ -315,6 +316,19 @@ export type SettlementSenderParameters = {
   sender: Address | undefined
 }
 
+/** Callback invoked after a settlement transaction is confirmed on-chain. */
+export type OnSettledCallback = (event: OnSettledEvent) => MaybePromise<void>
+
+/** Event payload delivered to the `onSettled` callback after on-chain confirmation. */
+export type OnSettledEvent = {
+  /** Transaction hash of the confirmed settlement. */
+  txHash: Hex
+  /** Channel ID that was settled. */
+  channelId: Hex
+  /** New cumulative amount settled on-chain after this transaction. */
+  newSettled: bigint
+}
+
 /** Options for server-driven precompile settlement transactions. */
 export type SettlementTransactionOptions = {
   /** Account used to send the settlement transaction. Defaults to the viem client account. */
@@ -329,6 +343,8 @@ export type SettlementTransactionOptions = {
   feePayerPolicy?: Partial<FeePayer.Policy> | undefined
   /** Optional fee token override for settlement. */
   feeToken?: Address | undefined
+  /** Called after a settlement transaction is confirmed on-chain. Fires for both manual and scheduled settlements. */
+  onSettled?: OnSettledCallback | undefined
 }
 
 /** Inputs for applying a server-owned automatic settlement schedule. */
@@ -345,6 +361,8 @@ export type MaybeSettleScheduledParameters = {
   feePayerPolicy?: Partial<FeePayer.Policy> | undefined
   /** Optional fee token override for settlement. */
   feeToken?: Address | undefined
+  /** Called after settlement is confirmed on-chain. */
+  onSettled?: OnSettledCallback | undefined
   /** Resolved server-owned settlement cadence. */
   schedule: ResolvedSettlementSchedule | undefined
   /** Server-side channel store. */
@@ -389,6 +407,7 @@ export async function maybeSettleScheduled(
     ...(parameters.feePayer ? { feePayer: parameters.feePayer } : {}),
     ...(parameters.feePayerPolicy ? { feePayerPolicy: parameters.feePayerPolicy } : {}),
     ...(parameters.feeToken ? { feeToken: parameters.feeToken } : {}),
+    ...(parameters.onSettled ? { onSettled: parameters.onSettled } : {}),
   })
   await markSettlementComplete({ channelId: channel.channelId, store })
   return txHash
@@ -455,6 +474,7 @@ export async function settle(
         }
       : current,
   )
+  await options?.onSettled?.({ txHash, channelId, newSettled })
   return txHash
 }
 

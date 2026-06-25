@@ -44,10 +44,14 @@ import {
 import { respondToSessionCredential } from './RequestState.js'
 import { applyVerifiedHttpAccounting, chargeSessionChannel } from './Settlement.js'
 import { maybeSettleScheduled } from './Settlement.js'
-import { resolveSettlementSchedule, type SettlementSchedule } from './Settlement.js'
+import {
+  resolveSettlementSchedule,
+  type OnSettledCallback,
+  type SettlementSchedule,
+} from './Settlement.js'
 
 /** Server-side automatic settlement schedule. */
-export type { SettlementSchedule } from './Settlement.js'
+export type { OnSettledCallback, OnSettledEvent, SettlementSchedule } from './Settlement.js'
 /** Server-side hook types for request-identity channel bootstrap. */
 export type {
   ResolveSessionChannelId,
@@ -440,6 +444,7 @@ export function session<const parameters extends session.Parameters>(
             feePayer: context.feePayer,
             feePayerPolicy: parameters.feePayerPolicy,
             feeToken: parameters.feeToken,
+            onSettled: parameters.onSettled,
             schedule: settlementSchedule,
             store,
             channel,
@@ -508,6 +513,8 @@ export namespace session {
     escrowContract?: Address | undefined
     /** Server-owned automatic settlement cadence. Clients do not receive or control this schedule. */
     settlementSchedule?: SettlementSchedule | undefined
+    /** Called after any on-chain settlement transaction is confirmed. Fires for both scheduled and manual settlements triggered through this method instance. */
+    onSettled?: OnSettledCallback | undefined
 
     /** Optional fee token used for server-driven close transactions. */
     feeToken?: Address | undefined
