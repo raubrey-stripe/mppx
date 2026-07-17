@@ -3,10 +3,10 @@ export { charge, session, settle, settleBatch } from './Session.js'
 export * as Sse from './Sse.js'
 /** Server-side automatic settlement schedule. */
 export type {
-  OnSettled,
+  OnSessionSettlement,
   ResolveSessionChannelId,
   ResolveSessionChannelIdParameters,
   SessionChannelIdRequest,
-  SettledContext,
+  SessionSettlementContext,
   SettlementSchedule,
 } from './Session.js'

@@ -44,12 +44,16 @@ import {
 import { respondToSessionCredential } from './RequestState.js'
 import { applyVerifiedHttpAccounting, chargeSessionChannel } from './Settlement.js'
 import { maybeSettleScheduled } from './Settlement.js'
-import { resolveSettlementSchedule, type OnSettled, type SettlementSchedule } from './Settlement.js'
+import {
+  resolveSettlementSchedule,
+  type OnSessionSettlement,
+  type SettlementSchedule,
+} from './Settlement.js'
 
 /** Server-side automatic settlement schedule. */
 export type { SettlementSchedule } from './Settlement.js'
 /** Server-side settlement event hook types. */
-export type { OnSettled, SettledContext } from './Settlement.js'
+export type { OnSessionSettlement, SessionSettlementContext } from './Settlement.js'
 /** Server-side hook types for request-identity channel bootstrap. */
 export type {
   ResolveSessionChannelId,
@@ -314,7 +318,26 @@ export function session<const parameters extends session.Parameters>(
     unitType,
   } = parameters
   const settlementSchedule = resolveSettlementSchedule(parameters.settlementSchedule, decimals)
-  const onSettled = parameters.onSettled
+  const userOnSessionSettlement = parameters.onSessionSettlement
+  let boundSettlementEmitter: ((context: unknown) => Promise<void>) | undefined
+
+  const onSessionSettlement: OnSessionSettlement = async (context) => {
+    if (userOnSessionSettlement) {
+      try {
+        await userOnSessionSettlement(context)
+      } catch {
+        // Errors are isolated.
+      }
+    }
+    if (boundSettlementEmitter) {
+      await boundSettlementEmitter({
+        txHash: context.txHash,
+        channelId: context.channelId,
+        trigger: context.trigger,
+        amount: context.amount,
+      })
+    }
+  }
 
   const store = ChannelStore.fromStore(rawStore)
   const lastOnChainVerified = new Map<Hex, number>()
@@ -346,7 +369,7 @@ export function session<const parameters extends session.Parameters>(
     : undefined
 
   type Defaults = session.DeriveDefaults<parameters>
-  return Method.toServer<typeof Methods.session, Defaults, Transport>(Methods.session, {
+  const baseMethod = Method.toServer<typeof Methods.session, Defaults, Transport>(Methods.session, {
     defaults: deriveServerDefaults<parameters>({
       amount,
       currency,
@@ -427,7 +450,7 @@ export function session<const parameters extends session.Parameters>(
         feeToken: parameters.feeToken,
         lastOnChainVerified,
         minVoucherDelta: context.minVoucherDelta,
-        onSettled,
+        onSessionSettlement,
         payload,
         store,
       })
@@ -448,7 +471,7 @@ export function session<const parameters extends session.Parameters>(
             ...(typeof context.feePayer === 'object' ? { feePayer: context.feePayer } : {}),
             feePayerPolicy: parameters.feePayerPolicy,
             feeToken: parameters.feeToken,
-            onSettled,
+            onSessionSettlement,
             schedule: settlementSchedule,
             store,
             channel,
@@ -474,6 +497,14 @@ export function session<const parameters extends session.Parameters>(
       })
     },
   })
+
+  const method = Object.assign(baseMethod, {
+    _bindSessionSettlementEmitter(emit: (context: unknown) => Promise<void>) {
+      boundSettlementEmitter = emit
+    },
+  })
+
+  return method as typeof baseMethod
 }
 
 export namespace session {
@@ -516,7 +547,7 @@ export namespace session {
     /** TIP20EscrowChannel precompile address override. */
     escrowContract?: Address | undefined
     /** Callback invoked after any on-chain settlement or close transaction is confirmed. */
-    onSettled?: OnSettled | undefined
+    onSessionSettlement?: OnSessionSettlement | undefined
     /** Server-owned automatic settlement cadence. Clients do not receive or control this schedule. */
     settlementSchedule?: SettlementSchedule | undefined
 

@@ -3337,3 +3337,214 @@ describe('precompile server session unit guardrails', () => {
     ).rejects.toThrow(/tx sender .* is not the channel payee/)
   })
 })
+
+describe('onSessionSettlement', () => {
+  function createSettleClient(channelId: Hex, settledAmount: bigint) {
+    return createClient({
+      account: payer,
+      chain: testChain,
+      transport: custom({
+        async request(args) {
+          if (args.method === 'eth_chainId') return `0x${chainId.toString(16)}`
+          if (args.method === 'eth_getTransactionCount') return '0x0'
+          if (args.method === 'eth_estimateGas') return '0x5208'
+          if (args.method === 'eth_maxPriorityFeePerGas') return '0x1'
+          if (args.method === 'eth_getBlockByNumber') return { baseFeePerGas: '0x1' }
+          if (args.method === 'eth_sendRawTransaction') return `0x${'cc'.repeat(32)}`
+          if (args.method === 'eth_sendTransaction') return `0x${'cc'.repeat(32)}`
+          if (args.method === 'eth_getTransactionReceipt')
+            return transactionReceipt([settledLog(channelId, settledAmount)])
+          if (args.method === 'eth_call') {
+            return encodeFunctionResult({
+              abi: escrowAbi,
+              functionName: 'getChannelState',
+              result: { settled: settledAmount, deposit: 1_000n, closeRequestedAt: 0 },
+            })
+          }
+          throw new Error(`unexpected rpc request: ${args.method}`)
+        },
+      }),
+    })
+  }
+
+  test('fires onSessionSettlement for explicit settle() calls', async () => {
+    const events: { trigger: string; txHash: string; amount: bigint }[] = []
+    const store = Store.memory()
+    const openPayload = await createOpenPayload()
+    await persistPrecompileChannel(channelStore(store), openPayload, {
+      payee: payer.address,
+      spent: 100n,
+      highestVoucherAmount: 100n,
+      highestVoucher: {
+        channelId: openPayload.channelId,
+        cumulativeAmount: 100n,
+        signature: '0x1234',
+      },
+    })
+
+    const { settle } = await import('./Session.js')
+    const client = createSettleClient(openPayload.channelId, 100n)
+    await settle(store, client, openPayload.channelId, {
+      onSessionSettlement: (ctx) => {
+        events.push({ trigger: ctx.trigger, txHash: ctx.txHash, amount: ctx.amount })
+      },
+    })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      trigger: 'settle',
+      txHash: `0x${'cc'.repeat(32)}`,
+      amount: 100n,
+    })
+  })
+
+  test('fires onSessionSettlement for auto-scheduled settlements', async () => {
+    const events: { trigger: string; channelId: string; amount: bigint }[] = []
+    const rawStore = Store.memory()
+    const openPayload = await createOpenPayload()
+    const store = channelStore(rawStore)
+    await persistPrecompileChannel(store, openPayload, {
+      payee: payer.address,
+      spent: 500n,
+      units: 10,
+      highestVoucherAmount: 500n,
+      highestVoucher: {
+        channelId: openPayload.channelId,
+        cumulativeAmount: 500n,
+        signature: '0x1234',
+      },
+    })
+
+    const { maybeSettleScheduled } = await import('./Settlement.js')
+    const client = createSettleClient(openPayload.channelId, 500n)
+    const channel = await store.getChannel(openPayload.channelId)
+
+    await maybeSettleScheduled({
+      account: payer,
+      channel: channel!,
+      client,
+      schedule: { units: 5 },
+      store,
+      onSessionSettlement: (ctx) => {
+        events.push({ trigger: ctx.trigger, channelId: ctx.channelId, amount: ctx.amount })
+      },
+    })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      trigger: 'scheduled',
+      channelId: openPayload.channelId,
+      amount: 500n,
+    })
+  })
+
+  test('fires onSessionSettlement for cooperative close', async () => {
+    const events: { trigger: string; txHash: string; amount: bigint }[] = []
+    const openPayload = await createOpenPayload()
+    const closedAmount = 100n
+    const refundedAmount = 900n
+    const rawStore = Store.memory()
+
+    const closeClient = createClient({
+      account: payer,
+      chain: testChain,
+      transport: custom({
+        async request(args) {
+          if (args.method === 'eth_chainId') return `0x${chainId.toString(16)}`
+          if (args.method === 'eth_getTransactionCount') return '0x0'
+          if (args.method === 'eth_estimateGas') return '0x5208'
+          if (args.method === 'eth_maxPriorityFeePerGas') return '0x1'
+          if (args.method === 'eth_getBlockByNumber') return { baseFeePerGas: '0x1' }
+          if (args.method === 'eth_sendRawTransaction') return `0x${'dd'.repeat(32)}`
+          if (args.method === 'eth_sendTransaction') return `0x${'dd'.repeat(32)}`
+          if (args.method === 'eth_getTransactionReceipt')
+            return transactionReceipt([
+              closedLog(openPayload.channelId, closedAmount, refundedAmount),
+            ])
+          if (args.method === 'eth_call') {
+            return encodeFunctionResult({
+              abi: escrowAbi,
+              functionName: 'getChannelState',
+              result: { settled: 0n, deposit: 1_000n, closeRequestedAt: 0 },
+            })
+          }
+          throw new Error(`unexpected rpc request: ${args.method}`)
+        },
+      }),
+    })
+
+    const method = session({
+      amount: '1',
+      chainId,
+      currency: token,
+      decimals: 0,
+      recipient: payee,
+      store: rawStore,
+      unitType: 'request',
+      getClient: () => closeClient,
+      onSessionSettlement: (ctx) => {
+        events.push({ trigger: ctx.trigger, txHash: ctx.txHash, amount: ctx.amount })
+      },
+    })
+
+    await persistPrecompileChannel(channelStore(rawStore), openPayload, {
+      payee: payer.address,
+      spent: 100n,
+      highestVoucherAmount: 100n,
+      highestVoucher: {
+        channelId: openPayload.channelId,
+        cumulativeAmount: 100n,
+        signature: '0x1234',
+      },
+    })
+
+    const closePayload: SessionCredentialPayload = {
+      action: 'close',
+      channelId: openPayload.channelId,
+      cumulativeAmount: '100',
+      captureAmount: '100',
+      signature: '0xclose_sig',
+    }
+
+    await method.verify({
+      credential: {
+        challenge: makeChallenge(openPayload.channelId),
+        payload: closePayload,
+      },
+      request: verifyRequest(openPayload.channelId),
+    })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      trigger: 'close',
+      txHash: `0x${'dd'.repeat(32)}`,
+      amount: closedAmount,
+    })
+  })
+
+  test('isolates errors in onSessionSettlement handler', async () => {
+    const store = Store.memory()
+    const openPayload = await createOpenPayload()
+    await persistPrecompileChannel(channelStore(store), openPayload, {
+      payee: payer.address,
+      spent: 100n,
+      highestVoucherAmount: 100n,
+      highestVoucher: {
+        channelId: openPayload.channelId,
+        cumulativeAmount: 100n,
+        signature: '0x1234',
+      },
+    })
+
+    const { settle } = await import('./Session.js')
+    const client = createSettleClient(openPayload.channelId, 100n)
+
+    await expect(
+      settle(store, client, openPayload.channelId, {
+        onSessionSettlement: () => {
+          throw new Error('observer exploded')
+        },
+      }),
+    ).resolves.toBe(`0x${'cc'.repeat(32)}`)
+  })
+})

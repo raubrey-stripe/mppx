@@ -30,7 +30,7 @@ import {
 import * as Voucher from '../precompile/Voucher.js'
 import * as ChannelStore from './ChannelStore.js'
 import { getChallengePaymentFields } from './RequestState.js'
-import { assertSettlementSender, getClientAccount, type OnSettled } from './Settlement.js'
+import { assertSettlementSender, getClientAccount, type OnSessionSettlement } from './Settlement.js'
 
 /** Returns the effective voucher signer for a TIP-1034 descriptor. */
 export function authorizedSigner(descriptor: Channel.ChannelDescriptor): Address {
@@ -345,7 +345,7 @@ export type VerifyCredentialPayloadParameters = {
   /** Minimum allowed voucher delta in raw units. */
   minVoucherDelta: bigint
   /** Callback invoked after an on-chain settlement or close transaction is confirmed. */
-  onSettled?: OnSettled | undefined
+  onSessionSettlement?: OnSessionSettlement | undefined
   /** Discriminated session credential payload to verify. */
   payload: SessionCredentialPayload
   /** Server-side channel store. */
@@ -749,9 +749,9 @@ async function handleCloseCredential(
       signature: payload.signature,
     }),
   )
-  if (parameters.onSettled && txHash) {
+  if (parameters.onSessionSettlement && txHash) {
     try {
-      await parameters.onSettled(
+      await parameters.onSessionSettlement(
         Object.freeze({
           txHash,
           channelId,

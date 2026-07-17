@@ -27,6 +27,18 @@ const secretKeyGenerationCommand = 'openssl rand -base64 32'
 
 export type Methods = readonly (Method.AnyServer | readonly Method.AnyServer[])[]
 
+/** Context emitted when a session on-chain settlement or close transaction is confirmed. */
+export type SessionSettlementContext = Readonly<{
+  /** On-chain transaction hash. */
+  txHash: string
+  /** Channel ID that was settled. */
+  channelId: string
+  /** The trigger that caused settlement. */
+  trigger: 'settle' | 'close' | 'scheduled'
+  /** Amount settled on-chain (raw token units). */
+  amount: bigint
+}>
+
 export type ServerEventMap<
   methods extends readonly Method.Method[] = readonly Method.Method[],
   transport extends Transport.AnyTransport = Transport.AnyTransport,
@@ -34,6 +46,7 @@ export type ServerEventMap<
   'challenge.created': ChallengeContext<methods[number], transport>
   'payment.failed': PaymentFailedContext<methods[number], transport>
   'payment.success': PaymentSuccessContext<methods[number], transport>
+  'session.settlement': SessionSettlementContext
 }
 
 export type ServerEventName<
@@ -185,6 +198,10 @@ export type Mppx<
   /** Register a handler for successful verified payments. */
   onPaymentSuccess(
     handler: ServerEventHandler<FlattenMethods<methods>, transport, 'payment.success'>,
+  ): Unsubscribe
+  /** Register a handler for session on-chain settlements (settle, close, auto-scheduled). */
+  onSessionSettlement(
+    handler: ServerEventHandler<FlattenMethods<methods>, transport, 'session.settlement'>,
   ): Unsubscribe
 } & (transport extends Transport.Http
   ? {
@@ -444,6 +461,9 @@ export function create<
 
   for (const mi of methods) {
     intentCount[mi.intent] = (intentCount[mi.intent] ?? 0) + 1
+    mi._bindSessionSettlementEmitter?.((context) =>
+      serverEvents.emit('session.settlement', context as never),
+    )
   }
   assertNoReservedMppxKeys(methods as readonly Method.AnyServer[])
 
@@ -751,6 +771,12 @@ export function create<
     return serverEvents.on('payment.success', handler)
   }
 
+  function onSessionSettlement(
+    handler: ServerEventHandler<FlattenMethods<methods>, transport, 'session.settlement'>,
+  ) {
+    return serverEvents.on('session.settlement', handler)
+  }
+
   return {
     methods,
     challenge: challengeHandlers,
@@ -759,6 +785,7 @@ export function create<
     onChallengeCreated,
     onPaymentFailed,
     onPaymentSuccess,
+    onSessionSettlement,
     realm: realm as string | undefined,
     transport,
     verifyCredential: verifyCredentialFn,
@@ -1411,6 +1438,7 @@ function createServerEventDispatcher<
     'challenge.created': new Set<ServerEventHandler<methods, transport, 'challenge.created'>>(),
     'payment.failed': new Set<ServerEventHandler<methods, transport, 'payment.failed'>>(),
     'payment.success': new Set<ServerEventHandler<methods, transport, 'payment.success'>>(),
+    'session.settlement': new Set<ServerEventHandler<methods, transport, 'session.settlement'>>(),
   }
 
   const on: ServerEventDispatcher<methods, transport>['on'] = (name, handler) => {
@@ -1419,6 +1447,7 @@ function createServerEventDispatcher<
       case 'challenge.created':
       case 'payment.failed':
       case 'payment.success':
+      case 'session.settlement':
         handlers[name].add(handler as never)
         return () => handlers[name].delete(handler as never)
       default:

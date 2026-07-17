@@ -148,7 +148,7 @@ export type SettlementProgress = {
 }
 
 /** Context emitted when an on-chain settlement or close transaction is confirmed. */
-export type SettledContext = Readonly<{
+export type SessionSettlementContext = Readonly<{
   /** On-chain transaction hash. */
   txHash: Hex
   /** Channel ID that was settled. */
@@ -162,7 +162,7 @@ export type SettledContext = Readonly<{
 }>
 
 /** Callback invoked after an on-chain settlement or close transaction is confirmed. */
-export type OnSettled = (context: SettledContext) => MaybePromise<void>
+export type OnSessionSettlement = (context: SessionSettlementContext) => MaybePromise<void>
 
 /** Inputs used to mark a channel after automatic scheduled settlement succeeds. */
 export type MarkSettlementCompleteParameters = {
@@ -359,7 +359,7 @@ export type SettlementTransactionOptions = {
   /** Optional fee token override for settlement. */
   feeToken?: Address | undefined
   /** Callback invoked after the settlement transaction is confirmed. */
-  onSettled?: OnSettled | undefined
+  onSessionSettlement?: OnSessionSettlement | undefined
 }
 
 /** Inputs for applying a server-owned automatic settlement schedule. */
@@ -377,7 +377,7 @@ export type MaybeSettleScheduledParameters = {
   /** Optional fee token override for settlement. */
   feeToken?: Address | undefined
   /** Callback invoked after the scheduled settlement transaction is confirmed. */
-  onSettled?: OnSettled | undefined
+  onSessionSettlement?: OnSessionSettlement | undefined
   /** Resolved server-owned settlement cadence. */
   schedule: ResolvedSettlementSchedule | undefined
   /** Server-side channel store. */
@@ -424,9 +424,9 @@ export async function maybeSettleScheduled(
     ...(parameters.feeToken ? { feeToken: parameters.feeToken } : {}),
   })
   await markSettlementComplete({ channelId: channel.channelId, store })
-  if (parameters.onSettled) {
+  if (parameters.onSessionSettlement) {
     const updatedChannel = await store.getChannel(channel.channelId)
-    await emitSettled(parameters.onSettled, {
+    await emitSessionSettlement(parameters.onSessionSettlement, {
       txHash,
       channelId: channel.channelId,
       trigger: 'scheduled',
@@ -500,9 +500,9 @@ export async function settle(
         }
       : current,
   )
-  if (options?.onSettled) {
+  if (options?.onSessionSettlement) {
     const updatedChannel = await store.getChannel(channelId)
-    await emitSettled(options.onSettled, {
+    await emitSessionSettlement(options.onSessionSettlement, {
       txHash,
       channelId,
       trigger: 'settle',
@@ -525,9 +525,9 @@ export async function settleBatch(
   return hashes
 }
 
-async function emitSettled(onSettled: OnSettled, context: SettledContext): Promise<void> {
+async function emitSessionSettlement(onSessionSettlement: OnSessionSettlement, context: SessionSettlementContext): Promise<void> {
   try {
-    await onSettled(Object.freeze(context))
+    await onSessionSettlement(Object.freeze(context))
   } catch {
     // Errors are isolated — observers cannot break the settlement flow.
   }
