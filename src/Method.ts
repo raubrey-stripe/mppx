@@ -144,8 +144,6 @@ export type Server<
   stableBinding?: StableBindingFn<method> | undefined
   transport?: transportOverride | undefined
   verify: VerifyFn<method>
-  /** @internal Allows the Mppx server to inject a settlement event emitter into method-specific settlement flows. */
-  _bindSessionSettlementEmitter?: ((emit: (context: unknown) => Promise<void>) => void) | undefined
 }
 export type AnyServer = Server<any, any, any, any, any>
 

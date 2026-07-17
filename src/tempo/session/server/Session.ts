@@ -318,26 +318,7 @@ export function session<const parameters extends session.Parameters>(
     unitType,
   } = parameters
   const settlementSchedule = resolveSettlementSchedule(parameters.settlementSchedule, decimals)
-  const userOnSessionSettlement = parameters.onSessionSettlement
-  let boundSettlementEmitter: ((context: unknown) => Promise<void>) | undefined
-
-  const onSessionSettlement: OnSessionSettlement = async (context) => {
-    if (userOnSessionSettlement) {
-      try {
-        await userOnSessionSettlement(context)
-      } catch {
-        // Errors are isolated.
-      }
-    }
-    if (boundSettlementEmitter) {
-      await boundSettlementEmitter({
-        txHash: context.txHash,
-        channelId: context.channelId,
-        trigger: context.trigger,
-        amount: context.amount,
-      })
-    }
-  }
+  const onSessionSettlement = parameters.onSessionSettlement
 
   const store = ChannelStore.fromStore(rawStore)
   const lastOnChainVerified = new Map<Hex, number>()
@@ -369,7 +350,7 @@ export function session<const parameters extends session.Parameters>(
     : undefined
 
   type Defaults = session.DeriveDefaults<parameters>
-  const baseMethod = Method.toServer<typeof Methods.session, Defaults, Transport>(Methods.session, {
+  return Method.toServer<typeof Methods.session, Defaults, Transport>(Methods.session, {
     defaults: deriveServerDefaults<parameters>({
       amount,
       currency,
@@ -497,14 +478,6 @@ export function session<const parameters extends session.Parameters>(
       })
     },
   })
-
-  const method = Object.assign(baseMethod, {
-    _bindSessionSettlementEmitter(emit: (context: unknown) => Promise<void>) {
-      boundSettlementEmitter = emit
-    },
-  })
-
-  return method as typeof baseMethod
 }
 
 export namespace session {
