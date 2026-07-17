@@ -44,10 +44,12 @@ import {
 import { respondToSessionCredential } from './RequestState.js'
 import { applyVerifiedHttpAccounting, chargeSessionChannel } from './Settlement.js'
 import { maybeSettleScheduled } from './Settlement.js'
-import { resolveSettlementSchedule, type SettlementSchedule } from './Settlement.js'
+import { resolveSettlementSchedule, type OnSettled, type SettlementSchedule } from './Settlement.js'
 
 /** Server-side automatic settlement schedule. */
 export type { SettlementSchedule } from './Settlement.js'
+/** Server-side settlement event hook types. */
+export type { OnSettled, SettledContext } from './Settlement.js'
 /** Server-side hook types for request-identity channel bootstrap. */
 export type {
   ResolveSessionChannelId,
@@ -312,6 +314,7 @@ export function session<const parameters extends session.Parameters>(
     unitType,
   } = parameters
   const settlementSchedule = resolveSettlementSchedule(parameters.settlementSchedule, decimals)
+  const onSettled = parameters.onSettled
 
   const store = ChannelStore.fromStore(rawStore)
   const lastOnChainVerified = new Map<Hex, number>()
@@ -424,6 +427,7 @@ export function session<const parameters extends session.Parameters>(
         feeToken: parameters.feeToken,
         lastOnChainVerified,
         minVoucherDelta: context.minVoucherDelta,
+        onSettled,
         payload,
         store,
       })
@@ -444,6 +448,7 @@ export function session<const parameters extends session.Parameters>(
             ...(typeof context.feePayer === 'object' ? { feePayer: context.feePayer } : {}),
             feePayerPolicy: parameters.feePayerPolicy,
             feeToken: parameters.feeToken,
+            onSettled,
             schedule: settlementSchedule,
             store,
             channel,
@@ -510,6 +515,8 @@ export namespace session {
     chainId?: number | undefined
     /** TIP20EscrowChannel precompile address override. */
     escrowContract?: Address | undefined
+    /** Callback invoked after any on-chain settlement or close transaction is confirmed. */
+    onSettled?: OnSettled | undefined
     /** Server-owned automatic settlement cadence. Clients do not receive or control this schedule. */
     settlementSchedule?: SettlementSchedule | undefined
 

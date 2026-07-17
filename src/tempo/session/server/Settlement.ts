@@ -16,6 +16,7 @@ import {
   InsufficientBalanceError,
   VerificationFailedError,
 } from '../../../Errors.js'
+import type { MaybePromise } from '../../../internal/types.js'
 import type * as Method from '../../../Method.js'
 import * as Store from '../../../Store.js'
 import type * as FeePayer from '../../internal/fee-payer.js'
@@ -145,6 +146,23 @@ export type SettlementProgress = {
   /** Additional paid units since the previous scheduled settlement boundary. */
   units: number
 }
+
+/** Context emitted when an on-chain settlement or close transaction is confirmed. */
+export type SettledContext = Readonly<{
+  /** On-chain transaction hash. */
+  txHash: Hex
+  /** Channel ID that was settled. */
+  channelId: Hex
+  /** The trigger that caused settlement. */
+  trigger: 'settle' | 'close' | 'scheduled'
+  /** Amount settled on-chain (raw token units). */
+  amount: bigint
+  /** Channel state snapshot at time of settlement. */
+  channel: ChannelStore.State
+}>
+
+/** Callback invoked after an on-chain settlement or close transaction is confirmed. */
+export type OnSettled = (context: SettledContext) => MaybePromise<void>
 
 /** Inputs used to mark a channel after automatic scheduled settlement succeeds. */
 export type MarkSettlementCompleteParameters = {
@@ -340,6 +358,8 @@ export type SettlementTransactionOptions = {
   feePayerPolicy?: Partial<FeePayer.Policy> | undefined
   /** Optional fee token override for settlement. */
   feeToken?: Address | undefined
+  /** Callback invoked after the settlement transaction is confirmed. */
+  onSettled?: OnSettled | undefined
 }
 
 /** Inputs for applying a server-owned automatic settlement schedule. */
@@ -356,6 +376,8 @@ export type MaybeSettleScheduledParameters = {
   feePayerPolicy?: Partial<FeePayer.Policy> | undefined
   /** Optional fee token override for settlement. */
   feeToken?: Address | undefined
+  /** Callback invoked after the scheduled settlement transaction is confirmed. */
+  onSettled?: OnSettled | undefined
   /** Resolved server-owned settlement cadence. */
   schedule: ResolvedSettlementSchedule | undefined
   /** Server-side channel store. */
@@ -402,6 +424,18 @@ export async function maybeSettleScheduled(
     ...(parameters.feeToken ? { feeToken: parameters.feeToken } : {}),
   })
   await markSettlementComplete({ channelId: channel.channelId, store })
+  if (parameters.onSettled) {
+    const updatedChannel = await store.getChannel(channel.channelId)
+    await emitSettled(parameters.onSettled, {
+      txHash,
+      channelId: channel.channelId,
+      trigger: 'scheduled',
+      amount: channel.highestVoucher
+        ? channel.highestVoucher.cumulativeAmount
+        : 0n,
+      channel: updatedChannel ?? channel,
+    })
+  }
   return txHash
 }
 
@@ -466,6 +500,16 @@ export async function settle(
         }
       : current,
   )
+  if (options?.onSettled) {
+    const updatedChannel = await store.getChannel(channelId)
+    await emitSettled(options.onSettled, {
+      txHash,
+      channelId,
+      trigger: 'settle',
+      amount: newSettled,
+      channel: updatedChannel ?? channel,
+    })
+  }
   return txHash
 }
 
@@ -479,4 +523,12 @@ export async function settleBatch(
   const hashes: Hex[] = []
   for (const channelId of channelIds) hashes.push(await settle(store, client, channelId, options))
   return hashes
+}
+
+async function emitSettled(onSettled: OnSettled, context: SettledContext): Promise<void> {
+  try {
+    await onSettled(Object.freeze(context))
+  } catch {
+    // Errors are isolated — observers cannot break the settlement flow.
+  }
 }
