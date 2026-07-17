@@ -757,7 +757,6 @@ async function handleCloseCredential(
           channelId,
           trigger: 'close' as const,
           amount: settledToPayee,
-          channel: updated ?? channel,
         }),
       )
     } catch {

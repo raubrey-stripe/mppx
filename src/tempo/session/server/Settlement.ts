@@ -149,7 +149,7 @@ export type SettlementProgress = {
 
 /** Context emitted when an on-chain settlement or close transaction is confirmed. */
 export type SessionSettlementContext = Readonly<{
-  /** On-chain transaction hash. */
+  /** On-chain transaction hash (or signature on Solana). */
   txHash: Hex
   /** Channel ID that was settled. */
   channelId: Hex
@@ -157,8 +157,6 @@ export type SessionSettlementContext = Readonly<{
   trigger: 'settle' | 'close' | 'scheduled'
   /** Amount settled on-chain (raw token units). */
   amount: bigint
-  /** Channel state snapshot at time of settlement. */
-  channel: ChannelStore.State
 }>
 
 /** Callback invoked after an on-chain settlement or close transaction is confirmed. */
@@ -425,7 +423,6 @@ export async function maybeSettleScheduled(
   })
   await markSettlementComplete({ channelId: channel.channelId, store })
   if (parameters.onSessionSettlement) {
-    const updatedChannel = await store.getChannel(channel.channelId)
     await emitSessionSettlement(parameters.onSessionSettlement, {
       txHash,
       channelId: channel.channelId,
@@ -433,7 +430,6 @@ export async function maybeSettleScheduled(
       amount: channel.highestVoucher
         ? channel.highestVoucher.cumulativeAmount
         : 0n,
-      channel: updatedChannel ?? channel,
     })
   }
   return txHash
@@ -501,13 +497,11 @@ export async function settle(
       : current,
   )
   if (options?.onSessionSettlement) {
-    const updatedChannel = await store.getChannel(channelId)
     await emitSessionSettlement(options.onSessionSettlement, {
       txHash,
       channelId,
       trigger: 'settle',
       amount: newSettled,
-      channel: updatedChannel ?? channel,
     })
   }
   return txHash
