@@ -3525,6 +3525,124 @@ describe('onSessionSettlement', () => {
     })
   })
 
+  test('delta reflects incremental settlement when channel has prior on-chain settlement', async () => {
+    const events: { trigger: string; amount: bigint; delta: bigint }[] = []
+    const store = Store.memory()
+    const openPayload = await createOpenPayload()
+    await persistPrecompileChannel(channelStore(store), openPayload, {
+      payee: payer.address,
+      spent: 300n,
+      settledOnChain: 200n,
+      highestVoucherAmount: 300n,
+      highestVoucher: {
+        channelId: openPayload.channelId,
+        cumulativeAmount: 300n,
+        signature: '0x1234',
+      },
+    })
+
+    const { settle } = await import('./Session.js')
+    const client = createSettleClient(openPayload.channelId, 300n)
+    await settle(store, client, openPayload.channelId, {
+      onSessionSettlement: (ctx) => {
+        events.push({ trigger: ctx.trigger, amount: ctx.amount, delta: ctx.delta })
+      },
+    })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      trigger: 'settle',
+      amount: 300n,
+      delta: 100n,
+    })
+  })
+
+  test('delta reflects incremental close when channel has prior on-chain settlement', async () => {
+    const events: { trigger: string; amount: bigint; delta: bigint }[] = []
+    const openPayload = await createOpenPayload()
+    const priorSettled = 50n
+    const closedAmount = 100n
+    const refundedAmount = 900n
+    const rawStore = Store.memory()
+
+    const closeClient = createClient({
+      account: payer,
+      chain: testChain,
+      transport: custom({
+        async request(args) {
+          if (args.method === 'eth_chainId') return `0x${chainId.toString(16)}`
+          if (args.method === 'eth_getTransactionCount') return '0x0'
+          if (args.method === 'eth_estimateGas') return '0x5208'
+          if (args.method === 'eth_maxPriorityFeePerGas') return '0x1'
+          if (args.method === 'eth_getBlockByNumber') return { baseFeePerGas: '0x1' }
+          if (args.method === 'eth_sendRawTransaction') return `0x${'dd'.repeat(32)}`
+          if (args.method === 'eth_sendTransaction') return `0x${'dd'.repeat(32)}`
+          if (args.method === 'eth_getTransactionReceipt')
+            return transactionReceipt([
+              closedLog(openPayload.channelId, closedAmount, refundedAmount),
+            ])
+          if (args.method === 'eth_call') {
+            return encodeFunctionResult({
+              abi: escrowAbi,
+              functionName: 'getChannelState',
+              result: { settled: priorSettled, deposit: 1_000n, closeRequestedAt: 0 },
+            })
+          }
+          throw new Error(`unexpected rpc request: ${args.method}`)
+        },
+      }),
+    })
+
+    const method = session({
+      amount: '1',
+      chainId,
+      currency: token,
+      decimals: 0,
+      recipient: payee,
+      store: rawStore,
+      unitType: 'request',
+      getClient: () => closeClient,
+      onSessionSettlement: (ctx) => {
+        events.push({ trigger: ctx.trigger, amount: ctx.amount, delta: ctx.delta })
+      },
+    })
+
+    await persistPrecompileChannel(channelStore(rawStore), openPayload, {
+      payee: payer.address,
+      spent: 100n,
+      settledOnChain: priorSettled,
+      highestVoucherAmount: 100n,
+      highestVoucher: {
+        channelId: openPayload.channelId,
+        cumulativeAmount: 100n,
+        signature: '0x1234',
+      },
+    })
+
+    const closePayload: SessionCredentialPayload = {
+      action: 'close',
+      channelId: openPayload.channelId,
+      descriptor: openPayload.descriptor,
+      cumulativeAmount: '100',
+      signature: '0xclose_sig',
+    }
+
+    await method.verify({
+      credential: {
+        challenge: makeChallenge(openPayload.channelId),
+        payload: closePayload,
+      },
+      request: verifyRequest(openPayload.channelId),
+    })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      trigger: 'close',
+      amount: closedAmount,
+      delta: closedAmount - priorSettled,
+    })
+  })
+
   test('isolates errors in onSessionSettlement handler', async () => {
     const store = Store.memory()
     const openPayload = await createOpenPayload()
