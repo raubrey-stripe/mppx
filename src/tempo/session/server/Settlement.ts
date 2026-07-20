@@ -417,25 +417,16 @@ export async function maybeSettleScheduled(
 ): Promise<Hex | undefined> {
   const { channel, schedule, store } = parameters
   if (!isSettlementDue(channel, schedule)) return undefined
-  const previousSettled = channel.settledOnChain
   const txHash = await settle(store, parameters.client, channel.channelId, {
     account: parameters.account,
     ...(parameters.feePayer ? { feePayer: parameters.feePayer } : {}),
     ...(parameters.feePayerPolicy ? { feePayerPolicy: parameters.feePayerPolicy } : {}),
     ...(parameters.feeToken ? { feeToken: parameters.feeToken } : {}),
+    onSessionSettlement: parameters.onSessionSettlement
+      ? (ctx) => parameters.onSessionSettlement!({ ...ctx, trigger: 'scheduled' })
+      : undefined,
   })
   await markSettlementComplete({ channelId: channel.channelId, store })
-  if (parameters.onSessionSettlement) {
-    const updated = await store.getChannel(channel.channelId)
-    const newSettled = updated?.settledOnChain ?? previousSettled
-    await emitSessionSettlement(parameters.onSessionSettlement, {
-      txHash,
-      channelId: channel.channelId,
-      trigger: 'scheduled',
-      amount: newSettled,
-      delta: newSettled - previousSettled,
-    })
-  }
   return txHash
 }
 
