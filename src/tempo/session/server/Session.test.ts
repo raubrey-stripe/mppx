@@ -3501,8 +3501,8 @@ describe('onSessionSettlement', () => {
     const closePayload: SessionCredentialPayload = {
       action: 'close',
       channelId: openPayload.channelId,
+      descriptor: openPayload.descriptor,
       cumulativeAmount: '100',
-      captureAmount: '100',
       signature: '0xclose_sig',
     }
 
