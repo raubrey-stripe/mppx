@@ -3368,7 +3368,7 @@ describe('onSessionSettlement', () => {
   }
 
   test('fires onSessionSettlement for explicit settle() calls', async () => {
-    const events: { trigger: string; txHash: string; amount: bigint }[] = []
+    const events: { trigger: string; txHash: string; amount: bigint; delta: bigint }[] = []
     const store = Store.memory()
     const openPayload = await createOpenPayload()
     await persistPrecompileChannel(channelStore(store), openPayload, {
@@ -3386,7 +3386,7 @@ describe('onSessionSettlement', () => {
     const client = createSettleClient(openPayload.channelId, 100n)
     await settle(store, client, openPayload.channelId, {
       onSessionSettlement: (ctx) => {
-        events.push({ trigger: ctx.trigger, txHash: ctx.txHash, amount: ctx.amount })
+        events.push({ trigger: ctx.trigger, txHash: ctx.txHash, amount: ctx.amount, delta: ctx.delta })
       },
     })
 
@@ -3395,11 +3395,12 @@ describe('onSessionSettlement', () => {
       trigger: 'settle',
       txHash: `0x${'cc'.repeat(32)}`,
       amount: 100n,
+      delta: 100n,
     })
   })
 
   test('fires onSessionSettlement for auto-scheduled settlements', async () => {
-    const events: { trigger: string; channelId: string; amount: bigint }[] = []
+    const events: { trigger: string; channelId: string; amount: bigint; delta: bigint }[] = []
     const rawStore = Store.memory()
     const openPayload = await createOpenPayload()
     const store = channelStore(rawStore)
@@ -3426,7 +3427,7 @@ describe('onSessionSettlement', () => {
       schedule: { units: 5 },
       store,
       onSessionSettlement: (ctx) => {
-        events.push({ trigger: ctx.trigger, channelId: ctx.channelId, amount: ctx.amount })
+        events.push({ trigger: ctx.trigger, channelId: ctx.channelId, amount: ctx.amount, delta: ctx.delta })
       },
     })
 
@@ -3435,11 +3436,12 @@ describe('onSessionSettlement', () => {
       trigger: 'scheduled',
       channelId: openPayload.channelId,
       amount: 500n,
+      delta: 500n,
     })
   })
 
   test('fires onSessionSettlement for cooperative close', async () => {
-    const events: { trigger: string; txHash: string; amount: bigint }[] = []
+    const events: { trigger: string; txHash: string; amount: bigint; delta: bigint }[] = []
     const openPayload = await createOpenPayload()
     const closedAmount = 100n
     const refundedAmount = 900n
@@ -3483,7 +3485,7 @@ describe('onSessionSettlement', () => {
       unitType: 'request',
       getClient: () => closeClient,
       onSessionSettlement: (ctx) => {
-        events.push({ trigger: ctx.trigger, txHash: ctx.txHash, amount: ctx.amount })
+        events.push({ trigger: ctx.trigger, txHash: ctx.txHash, amount: ctx.amount, delta: ctx.delta })
       },
     })
 
@@ -3519,6 +3521,7 @@ describe('onSessionSettlement', () => {
       trigger: 'close',
       txHash: `0x${'dd'.repeat(32)}`,
       amount: closedAmount,
+      delta: closedAmount,
     })
   })
 

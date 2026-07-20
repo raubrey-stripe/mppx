@@ -757,6 +757,7 @@ async function handleCloseCredential(
           channelId,
           trigger: 'close' as const,
           amount: settledToPayee,
+          delta: settledToPayee - state.settled,
         }),
       )
     } catch {

@@ -155,8 +155,10 @@ export type SessionSettlementContext = Readonly<{
   channelId: Hex
   /** The trigger that caused settlement. */
   trigger: 'settle' | 'close' | 'scheduled'
-  /** Amount settled on-chain (raw token units). */
+  /** Cumulative amount settled on-chain to the payee (raw token units). */
   amount: bigint
+  /** Incremental amount settled in this transaction (raw token units). */
+  delta: bigint
 }>
 
 /** Callback invoked after an on-chain settlement or close transaction is confirmed. */
@@ -415,6 +417,7 @@ export async function maybeSettleScheduled(
 ): Promise<Hex | undefined> {
   const { channel, schedule, store } = parameters
   if (!isSettlementDue(channel, schedule)) return undefined
+  const previousSettled = channel.settledOnChain
   const txHash = await settle(store, parameters.client, channel.channelId, {
     account: parameters.account,
     ...(parameters.feePayer ? { feePayer: parameters.feePayer } : {}),
@@ -423,13 +426,14 @@ export async function maybeSettleScheduled(
   })
   await markSettlementComplete({ channelId: channel.channelId, store })
   if (parameters.onSessionSettlement) {
+    const updated = await store.getChannel(channel.channelId)
+    const newSettled = updated?.settledOnChain ?? previousSettled
     await emitSessionSettlement(parameters.onSessionSettlement, {
       txHash,
       channelId: channel.channelId,
       trigger: 'scheduled',
-      amount: channel.highestVoucher
-        ? channel.highestVoucher.cumulativeAmount
-        : 0n,
+      amount: newSettled,
+      delta: newSettled - previousSettled,
     })
   }
   return txHash
@@ -502,6 +506,7 @@ export async function settle(
       channelId,
       trigger: 'settle',
       amount: newSettled,
+      delta: newSettled - channel.settledOnChain,
     })
   }
   return txHash
