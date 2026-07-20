@@ -3440,6 +3440,47 @@ describe('onSessionSettlement', () => {
     })
   })
 
+  test('delta reflects incremental scheduled settlement with prior on-chain settlement', async () => {
+    const events: { trigger: string; amount: bigint; delta: bigint }[] = []
+    const rawStore = Store.memory()
+    const openPayload = await createOpenPayload()
+    const store = channelStore(rawStore)
+    await persistPrecompileChannel(store, openPayload, {
+      payee: payer.address,
+      spent: 500n,
+      units: 10,
+      settledOnChain: 200n,
+      highestVoucherAmount: 500n,
+      highestVoucher: {
+        channelId: openPayload.channelId,
+        cumulativeAmount: 500n,
+        signature: '0x1234',
+      },
+    })
+
+    const { maybeSettleScheduled } = await import('./Settlement.js')
+    const client = createSettleClient(openPayload.channelId, 500n)
+    const channel = await store.getChannel(openPayload.channelId)
+
+    await maybeSettleScheduled({
+      account: payer,
+      channel: channel!,
+      client,
+      schedule: { units: 5 },
+      store,
+      onSessionSettlement: (ctx) => {
+        events.push({ trigger: ctx.trigger, amount: ctx.amount, delta: ctx.delta })
+      },
+    })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      trigger: 'scheduled',
+      amount: 500n,
+      delta: 300n,
+    })
+  })
+
   test('fires onSessionSettlement for cooperative close', async () => {
     const events: { trigger: string; txHash: string; amount: bigint; delta: bigint }[] = []
     const openPayload = await createOpenPayload()
