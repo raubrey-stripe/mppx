@@ -3386,7 +3386,12 @@ describe('onSessionSettlement', () => {
     const client = createSettleClient(openPayload.channelId, 100n)
     await settle(store, client, openPayload.channelId, {
       onSessionSettlement: (ctx) => {
-        events.push({ trigger: ctx.trigger, txHash: ctx.txHash, amount: ctx.amount, delta: ctx.delta })
+        events.push({
+          trigger: ctx.trigger,
+          txHash: ctx.txHash,
+          amount: ctx.amount,
+          delta: ctx.delta,
+        })
       },
     })
 
@@ -3427,7 +3432,12 @@ describe('onSessionSettlement', () => {
       schedule: { units: 5 },
       store,
       onSessionSettlement: (ctx) => {
-        events.push({ trigger: ctx.trigger, channelId: ctx.channelId, amount: ctx.amount, delta: ctx.delta })
+        events.push({
+          trigger: ctx.trigger,
+          channelId: ctx.channelId,
+          amount: ctx.amount,
+          delta: ctx.delta,
+        })
       },
     })
 
@@ -3526,7 +3536,12 @@ describe('onSessionSettlement', () => {
       unitType: 'request',
       getClient: () => closeClient,
       onSessionSettlement: (ctx) => {
-        events.push({ trigger: ctx.trigger, txHash: ctx.txHash, amount: ctx.amount, delta: ctx.delta })
+        events.push({
+          trigger: ctx.trigger,
+          txHash: ctx.txHash,
+          amount: ctx.amount,
+          delta: ctx.delta,
+        })
       },
     })
 

@@ -515,7 +515,10 @@ export async function settleBatch(
   return hashes
 }
 
-async function emitSessionSettlement(onSessionSettlement: OnSessionSettlement, context: SessionSettlementContext): Promise<void> {
+async function emitSessionSettlement(
+  onSessionSettlement: OnSessionSettlement,
+  context: SessionSettlementContext,
+): Promise<void> {
   try {
     await onSessionSettlement(Object.freeze(context))
   } catch {
