@@ -3556,18 +3556,24 @@ describe('onSessionSettlement', () => {
       },
     })
 
-    const closePayload: SessionCredentialPayload = {
-      action: 'close',
-      channelId: openPayload.channelId,
-      descriptor: openPayload.descriptor,
-      cumulativeAmount: '100',
-      signature: '0xclose_sig',
-    }
+    const closeSignature = await Voucher.signVoucher(
+      createSigningClient(),
+      payer,
+      { channelId: openPayload.channelId, cumulativeAmount: 100n },
+      tip20ChannelEscrow,
+      chainId,
+    )
 
     await method.verify({
       credential: {
         challenge: makeChallenge(openPayload.channelId),
-        payload: closePayload,
+        payload: {
+          action: 'close',
+          channelId: openPayload.channelId,
+          descriptor: openPayload.descriptor,
+          cumulativeAmount: '100',
+          signature: closeSignature,
+        },
       },
       request: verifyRequest(openPayload.channelId),
     })
@@ -3675,18 +3681,24 @@ describe('onSessionSettlement', () => {
       },
     })
 
-    const closePayload: SessionCredentialPayload = {
-      action: 'close',
-      channelId: openPayload.channelId,
-      descriptor: openPayload.descriptor,
-      cumulativeAmount: '100',
-      signature: '0xclose_sig',
-    }
+    const closeSignature = await Voucher.signVoucher(
+      createSigningClient(),
+      payer,
+      { channelId: openPayload.channelId, cumulativeAmount: 100n },
+      tip20ChannelEscrow,
+      chainId,
+    )
 
     await method.verify({
       credential: {
         challenge: makeChallenge(openPayload.channelId),
-        payload: closePayload,
+        payload: {
+          action: 'close',
+          channelId: openPayload.channelId,
+          descriptor: openPayload.descriptor,
+          cumulativeAmount: '100',
+          signature: closeSignature,
+        },
       },
       request: verifyRequest(openPayload.channelId),
     })
