@@ -5,6 +5,8 @@ import { Header as x402_Header, Types as x402_Types, type PaymentPayload } from 
 import { privateKeyToAccount } from 'viem/accounts'
 import { describe, expect, test } from 'vp/test'
 
+import * as RouteBinding from '../internal/RouteBinding.js'
+
 const transaction = `0x${'1'.repeat(64)}`
 /** Pays. */
 const account = privateKeyToAccount(
@@ -108,6 +110,31 @@ async function thirdPartyCredential(parameters: {
     payload: { authorization, signature },
     ...(parameters.resource ? { resource: parameters.resource } : {}),
     x402Version: 2,
+  })
+}
+
+function routeBoundExtensions(
+  extensions: x402_Types.Extensions,
+  info?: Record<string, unknown> | undefined,
+): x402_Types.Extensions {
+  const mppx = extensions.mppx!
+  return {
+    ...extensions,
+    mppx: {
+      ...mppx,
+      info: { ...mppx.info, nonce: 'client-salt', ...info },
+    },
+  }
+}
+
+async function routeBoundCredential(parameters: {
+  accepted: x402_Types.PaymentRequirements
+  extensions: x402_Types.Extensions
+  resource: x402_Types.ResourceInfo
+}): Promise<string> {
+  return thirdPartyCredential({
+    ...parameters,
+    nonce: RouteBinding.nonce(parameters),
   })
 }
 
@@ -222,6 +249,28 @@ describe('x402 evm charge route binding', () => {
     expect(reached).toEqual([])
   })
 
+  test('a scoped charge rejects altered payment requirements', async () => {
+    const { mppx, reached } = createMppx()
+    const route = mppx.evm.charge({ amount: '0.25', scope })
+
+    const challenged = await route(request(url))
+    if (challenged.status !== 402) throw new Error()
+    const challenge = readChallenge(challenged.challenge)
+
+    const result = await route(
+      request(
+        url,
+        await thirdPartyCredential({
+          accepted: { ...challenge.accepts[0]!, amount: '1' },
+          resource: challenge.resource,
+        }),
+      ),
+    )
+
+    expect(result.status).toBe(402)
+    expect(reached).toEqual([])
+  })
+
   test('an unscoped charge is payable by a third-party client', async () => {
     const { mppx, reached } = createMppx()
     const route = mppx.evm.charge({ amount: '0.25' })
@@ -242,6 +291,28 @@ describe('x402 evm charge route binding', () => {
 
     expect(result.status).toBe(200)
     expect(reached).toEqual(['verify', 'settle'])
+  })
+
+  test('an unscoped charge rejects an unrelated resource', async () => {
+    const { mppx, reached } = createMppx()
+    const route = mppx.evm.charge({ amount: '0.25' })
+
+    const challenged = await route(request('https://example.com/paid'))
+    if (challenged.status !== 402) throw new Error()
+    const challenge = readChallenge(challenged.challenge)
+
+    const result = await route(
+      request(
+        'https://example.com/paid',
+        await thirdPartyCredential({
+          accepted: challenge.accepts[0]!,
+          resource: { ...challenge.resource, url: 'https://example.com/other' },
+        }),
+      ),
+    )
+
+    expect(result.status).toBe(402)
+    expect(reached).toEqual([])
   })
 
   test('a credential claiming mppx binding is still verified in full', async () => {
@@ -270,6 +341,63 @@ describe('x402 evm charge route binding', () => {
         }),
       ),
     )
+
+    expect(result.status).toBe(402)
+    expect(reached).toEqual([])
+  })
+
+  test('a valid mppx-bound credential remains payable', async () => {
+    const { mppx, reached } = createMppx({ routeBinding: 'required' })
+    const route = mppx.evm.charge({ amount: '0.25', scope })
+
+    const challenged = await route(request(url))
+    if (challenged.status !== 402) throw new Error()
+    const challenge = readChallenge(challenged.challenge)
+    const parameters = {
+      accepted: challenge.accepts[0]!,
+      extensions: routeBoundExtensions(challenge.extensions!),
+      resource: challenge.resource,
+    }
+
+    const result = await route(request(url, await routeBoundCredential(parameters)))
+
+    expect(result.status).toBe(200)
+    expect(reached).toEqual(['verify', 'settle'])
+  })
+
+  test('a bound credential rejects a mismatched resource', async () => {
+    const { mppx, reached } = createMppx()
+    const route = mppx.evm.charge({ amount: '0.25', scope })
+
+    const challenged = await route(request(url))
+    if (challenged.status !== 402) throw new Error()
+    const challenge = readChallenge(challenged.challenge)
+    const parameters = {
+      accepted: challenge.accepts[0]!,
+      extensions: routeBoundExtensions(challenge.extensions!),
+      resource: { ...challenge.resource, url: 'https://example.com/other' },
+    }
+
+    const result = await route(request(url, await routeBoundCredential(parameters)))
+
+    expect(result.status).toBe(402)
+    expect(reached).toEqual([])
+  })
+
+  test('a bound credential rejects altered route extensions', async () => {
+    const { mppx, reached } = createMppx()
+    const route = mppx.evm.charge({ amount: '0.25', scope })
+
+    const challenged = await route(request(url))
+    if (challenged.status !== 402) throw new Error()
+    const challenge = readChallenge(challenged.challenge)
+    const parameters = {
+      accepted: challenge.accepts[0]!,
+      extensions: routeBoundExtensions(challenge.extensions!, { _mppx_scope: 'GET /other' }),
+      resource: challenge.resource,
+    }
+
+    const result = await route(request(url, await routeBoundCredential(parameters)))
 
     expect(result.status).toBe(402)
     expect(reached).toEqual([])
