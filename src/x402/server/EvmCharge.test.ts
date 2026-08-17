@@ -60,9 +60,9 @@ function readError(response: Response) {
 
 /**
  * Builds the credential a spec-compliant third-party x402 wallet produces: the
- * advertised `accepted` and `resource` echoed back, a nonce of its own choosing,
- * and no `extensions.mppx` — which is mppx's own binding, and unpublished, so a
- * client mppx did not write cannot compute it.
+ * advertised `accepted`, `resource`, and optional extensions echoed back, with
+ * a nonce of its own choosing. A client mppx did not write cannot compute the
+ * unpublished route-bound nonce.
  */
 async function thirdPartyCredential(parameters: {
   accepted: x402_Types.PaymentRequirements
@@ -121,7 +121,7 @@ describe('x402 evm charge route binding', () => {
   const url = 'https://example.com/paid-scoped'
   const scope = 'GET /paid-scoped'
 
-  test('a scoped charge is payable by a third-party client', async () => {
+  test('a scoped charge accepts a standard extension echo without a bound nonce', async () => {
     const { mppx, reached } = createMppx()
     const route = mppx.evm.charge({ amount: '0.25', scope })
 
@@ -136,12 +136,14 @@ describe('x402 evm charge route binding', () => {
       _mppx_scope: scope,
       method: 'GET',
     })
+    expect(challenge.extensions?.mppx?.info.nonce).toBeUndefined()
 
     const result = await route(
       request(
         url,
         await thirdPartyCredential({
           accepted: challenge.accepts[0]!,
+          extensions: challenge.extensions,
           resource: challenge.resource,
         }),
       ),
@@ -210,6 +212,7 @@ describe('x402 evm charge route binding', () => {
         url,
         await thirdPartyCredential({
           accepted: challenge.accepts[0]!,
+          extensions: challenge.extensions,
           resource: challenge.resource,
         }),
       ),
