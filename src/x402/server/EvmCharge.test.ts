@@ -169,6 +169,31 @@ describe('x402 evm charge route binding', () => {
     expect(reached).toEqual([])
   })
 
+  test('a scoped charge accepts an enriched echoed resource', async () => {
+    const { mppx, reached } = createMppx()
+    const route = mppx.evm.charge({ amount: '0.25', scope })
+
+    const challenged = await route(request(url))
+    if (challenged.status !== 402) throw new Error()
+    const challenge = readChallenge(challenged.challenge)
+
+    // Only the URL is load-bearing. A client that round-trips the resource with
+    // descriptive fields filled in has still bound the route, so rejecting it
+    // would cost interop and buy nothing.
+    const result = await route(
+      request(
+        url,
+        await thirdPartyCredential({
+          accepted: challenge.accepts[0]!,
+          resource: { ...challenge.resource, description: 'A paid route.' },
+        }),
+      ),
+    )
+
+    expect(result.status).toBe(200)
+    expect(reached).toEqual(['verify', 'settle'])
+  })
+
   test('a scoped charge rejects a credential minted for another route', async () => {
     const { mppx, reached } = createMppx()
     const route = mppx.evm.charge({ amount: '0.25', scope })

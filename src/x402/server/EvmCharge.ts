@@ -164,9 +164,16 @@ export function createPath(config: ResolvedOptions): Path {
           })
       } else if (routeRequiresBinding) {
         // A scoped route still binds what x402 makes bindable: the resource must
-        // be echoed, not merely left out. `accepted` was compared above, and
-        // `challenge.digest` was verified against the body by assertBodyDigest().
-        if (!isDeepStrictEqual(paymentPayload.resource, expectedResource))
+        // be echoed, not merely left out, which is the one thing a scope can ask
+        // of a client that doesn't implement mppx's binding. `accepted` was
+        // compared above, and `challenge.digest` was verified against the body by
+        // assertBodyDigest().
+        //
+        // Only the URL is compared. `ResourceInfo` carries optional descriptive
+        // fields that mppx neither advertises nor attaches meaning to, so
+        // demanding their absence would reject a client echoing an enriched
+        // resource without binding anything in return.
+        if (paymentPayload.resource?.url !== expectedResource.url)
           throw new VerificationFailedError({
             reason: 'x402 payment payload resource does not match route resource',
           })
